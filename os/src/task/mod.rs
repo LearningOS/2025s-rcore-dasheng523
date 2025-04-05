@@ -39,12 +39,17 @@ pub struct TaskManager {
     inner: UPSafeCell<TaskManagerInner>,
 }
 
+
+const MAX_SYSCALL_NUM: usize = 474;
+
 /// Inner of Task Manager
 pub struct TaskManagerInner {
     /// task list
     tasks: [TaskControlBlock; MAX_APP_NUM],
     /// id of current `Running` task
     current_task: usize,
+    /// syscall times map
+    syscall_times: [usize; MAX_APP_NUM * MAX_SYSCALL_NUM],
 }
 
 lazy_static! {
@@ -65,6 +70,7 @@ lazy_static! {
                 UPSafeCell::new(TaskManagerInner {
                     tasks,
                     current_task: 0,
+                    syscall_times: [0; MAX_APP_NUM * MAX_SYSCALL_NUM],
                 })
             },
         }
@@ -72,6 +78,7 @@ lazy_static! {
 }
 
 impl TaskManager {
+    
     /// Run the first task in task list.
     ///
     /// Generally, the first task in task list is an idle task (we call it zero process later).
@@ -135,6 +142,20 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+
+    fn inc_syscall_times(&self, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let idx = current * MAX_SYSCALL_NUM + syscall_id;
+        inner.syscall_times[idx] += 1;
+    }
+
+    fn get_syscall_times(&self, syscall_id: usize) -> usize {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let idx = current * MAX_SYSCALL_NUM + syscall_id;
+        inner.syscall_times[idx]
+    }
 }
 
 /// Run the first task in task list.
@@ -168,4 +189,13 @@ pub fn suspend_current_and_run_next() {
 pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
+}
+
+/// Increase the syscall times of current `Running` task.
+pub fn inc_syscall_times(syscall_id: usize) {
+    TASK_MANAGER.inc_syscall_times(syscall_id);
+}
+/// Get the syscall times of current `Running` task.
+pub fn get_syscall_times(syscall_id: usize) -> usize {
+    TASK_MANAGER.get_syscall_times(syscall_id)
 }
