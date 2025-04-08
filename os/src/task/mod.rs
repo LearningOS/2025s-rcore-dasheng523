@@ -14,6 +14,7 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
+use crate::config::MAX_SYSCALL_NUM;
 use crate::loader::{get_app_data, get_num_app};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
@@ -46,6 +47,7 @@ struct TaskManagerInner {
     tasks: Vec<TaskControlBlock>,
     /// id of current `Running` task
     current_task: usize,
+    syscall_times: Vec<usize>,
 }
 
 lazy_static! {
@@ -64,6 +66,11 @@ lazy_static! {
                 UPSafeCell::new(TaskManagerInner {
                     tasks,
                     current_task: 0,
+                    syscall_times: {
+                        let mut v = Vec::with_capacity(num_app * MAX_SYSCALL_NUM);
+                        v.extend((0..num_app * MAX_SYSCALL_NUM).map(|_| 0));
+                        v
+                    },
                 })
             },
         }
@@ -124,6 +131,20 @@ impl TaskManager {
     fn get_current_trap_cx(&self) -> &'static mut TrapContext {
         let inner = self.inner.exclusive_access();
         inner.tasks[inner.current_task].get_trap_cx()
+    }
+
+    fn inc_syscall_times(&self, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let idx = current * MAX_SYSCALL_NUM + syscall_id;
+        inner.syscall_times[idx] += 1;
+    }
+
+    fn get_syscall_times(&self, syscall_id: usize) -> usize {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let idx = current * MAX_SYSCALL_NUM + syscall_id;
+        inner.syscall_times[idx]
     }
 
     /// Change the current 'Running' task's program break
@@ -201,4 +222,13 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+/// Get the syscall times of current `Running` task.
+pub fn get_syscall_times(syscall_id: usize) -> usize {
+    TASK_MANAGER.get_syscall_times(syscall_id)
+}
+
+/// Increase the syscall times of current `Running` task.
+pub fn inc_syscall_times(syscall_id: usize) {
+    TASK_MANAGER.inc_syscall_times(syscall_id);
 }

@@ -262,6 +262,64 @@ impl MemorySet {
             false
         }
     }
+
+    /// 申请长度为 len 字节的物理内存
+    pub fn mmap(&mut self, start: usize, len: usize, prot: MapPermission) -> isize {
+        let start_va = VirtAddr::from(start);
+        let end_va = VirtAddr::from(start + len);
+
+        if !start_va.aligned() {
+            return -1;
+        }
+
+        if start + len > MEMORY_END {
+            return -1;
+        }
+
+        let area = MapArea::new(start_va, end_va, MapType::Framed, prot | MapPermission::U);
+        for item in self.areas.iter() {
+            let area_start = area.vpn_range.get_start();
+            let area_end = area.vpn_range.get_end();
+            let item_start = item.vpn_range.get_start();
+            let item_end = item.vpn_range.get_end();
+            if !(area_end <= item_start || area_start >= item_end) {
+                return -1; // 重叠了
+            }
+        }
+        self.push(area, None);
+        return 0;
+    }
+
+    /// 取消映射指定的虚拟内存区域
+    pub fn munmap(&mut self, start: usize, len: usize) -> isize {
+        let start_va = VirtAddr::from(start);
+        let end_va = VirtAddr::from(start + len);
+
+        if !start_va.aligned() {
+            return -1;
+        }
+
+        if start + len > MEMORY_END {
+            return -1;
+        }
+
+        let area_start = start_va.floor();
+        let area_end = end_va.ceil();
+        for item in self.areas.iter() {
+            let item_start = item.vpn_range.get_start();
+            let item_end = item.vpn_range.get_end();
+            if (area_start >= item_start) && (area_end < item_end) {
+                // 后面那段做新增
+                let right_area = MapArea::new(area_end.into(), item_end.into(), item.map_type, item.map_perm);
+                self.push(right_area, None);
+                // 前面那段做裁剪
+                self.shrink_to(item_start.into(), area_start.into());
+                break;
+            }
+        }
+
+        return -1;
+    }
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {

@@ -1,5 +1,7 @@
 //! Implementation of [`PageTableEntry`] and [`PageTable`].
 
+use crate::config::PAGE_SIZE;
+
 use super::{frame_alloc, FrameTracker, PhysPageNum, StepByOne, VirtAddr, VirtPageNum};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -178,4 +180,119 @@ pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize) -> Vec<&
         start = end_va.into();
     }
     v
+}
+
+
+/// 从用户空间读取数据并转换为指定类型
+/// 
+/// # 参数
+/// 
+/// * `token` - 页表标识符
+/// * `ptr` - 用户空间源地址的指针
+/// 
+/// # 返回值
+/// 
+/// * `Some(T)` - 读取并转换成功后的数据
+/// * `None` - 读取失败（源地址无效或不可读）
+/// 
+/// # 泛型参数
+/// 
+/// * `T` - 要转换成的目标类型
+pub fn translate_data<T>(token: usize, ptr: *const u8) -> Option<T> {
+    let page_table = PageTable::from_token(token);
+    let start = ptr as usize;
+    let start_va = VirtAddr::from(start);
+    let vpn: VirtPageNum = start_va.floor();
+    let entry = page_table.translate(vpn).unwrap();
+    if !entry.is_valid() || !entry.readable() {
+        return None;
+    }
+
+    let data_len = core::mem::size_of::<T>();
+    let buffer = translated_byte_buffer(token, ptr, data_len);
+
+    // 创建一个未初始化的T实例
+    let mut data: T = unsafe { core::mem::MaybeUninit::uninit().assume_init() };
+    
+    // 将buffer中的数据复制到data中
+    unsafe {
+        let data_ptr = &mut data as *mut T as *mut u8;
+        let mut offset = 0;
+        for slice in buffer {
+            core::ptr::copy_nonoverlapping(
+                slice.as_ptr(),
+                data_ptr.add(offset),
+                slice.len()
+            );
+            offset += slice.len();
+        }
+    }
+    return Some(data);
+} 
+
+
+/// 将数据写入用户空间
+/// 
+/// # 参数
+/// 
+/// * `token` - 页表标识符
+/// * `ptr` - 用户空间目标地址的指针
+/// * `data` - 要写入的数据的指针
+/// 
+/// # 返回值
+/// 
+/// * `1` - 写入成功
+/// * `-1` - 写入失败（目标地址无效或不可写）
+pub fn write_data<T>(token: usize, ptr: *mut u8, data: *const T) -> isize {
+    let page_table = PageTable::from_token(token);
+    let start = ptr as usize;
+    let start_va = VirtAddr::from(start);
+    let vpn: VirtPageNum = start_va.floor();
+    let entry = page_table.translate(vpn).unwrap();
+    if !entry.is_valid() || !entry.writable() {
+        return -1;
+    }
+
+    let data_len = core::mem::size_of::<T>();
+    let mut data_u8 = vec![0u8; data_len];
+    unsafe {
+        let data_ptr = data as *const u8;
+        core::ptr::copy_nonoverlapping(data_ptr, data_u8.as_mut_ptr(), data_len);
+    }
+    write_byte_buffer(token, ptr as *mut u8, &data_u8);
+    return 1;
+} 
+
+/// Write data to user space through page table
+/// 
+/// # Arguments
+/// 
+/// * `token` - The page table token
+/// * `ptr` - Pointer to the destination in user space
+/// * `data` - The data to be written
+pub fn write_byte_buffer(token: usize, ptr: *mut u8, data: &[u8]) {
+    let page_table = PageTable::from_token(token);
+    let start = ptr as usize;
+    let start_va = VirtAddr::from(start);
+    let mut vpn = start_va.floor();
+    let ppn = page_table.translate(vpn).unwrap().ppn();
+
+    // copy time to ppn
+    // 先看看会不会跨页
+    if start_va.page_offset() + data.len() <= PAGE_SIZE {
+        let dst = &mut ppn.get_bytes_array()[start_va.page_offset()..start_va.page_offset() + data.len()];
+        dst.copy_from_slice(data);
+    }
+    else {
+        // 先复制第一页中的部分
+        let first_page_bytes = PAGE_SIZE - start_va.page_offset();
+        let dst_first = &mut ppn.get_bytes_array()[start_va.page_offset()..];
+        dst_first.copy_from_slice(&data[..first_page_bytes]);
+        
+        // 处理第二页
+        vpn.step();
+        let ppn_next = page_table.translate(vpn).unwrap().ppn();
+        let dst_second = &mut ppn_next.get_bytes_array()[..data.len() - first_page_bytes];
+        dst_second.copy_from_slice(&data[first_page_bytes..]);
+    }
 }

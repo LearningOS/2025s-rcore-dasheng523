@@ -1,5 +1,6 @@
 //! Process management syscalls
-use crate::task::{change_program_brk, exit_current_and_run_next, suspend_current_and_run_next};
+use crate::{mm::write_data, task::{change_program_brk, current_user_token, exit_current_and_run_next, get_syscall_times, suspend_current_and_run_next}, timer::get_time_us};
+
 
 #[repr(C)]
 #[derive(Debug)]
@@ -25,16 +26,48 @@ pub fn sys_yield() -> isize {
 /// YOUR JOB: get time with second and microsecond
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
-pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
+pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
     trace!("kernel: sys_get_time");
-    -1
+    let us = get_time_us();
+    let time = TimeVal {
+        sec: us / 1_000_000,
+        usec: us % 1_000_000,
+    };
+    let token = current_user_token();
+    write_data(token, ts as *mut u8, &time);
+    0
 }
 
 /// TODO: Finish sys_trace to pass testcases
 /// HINT: You might reimplement it with virtual memory management.
-pub fn sys_trace(_trace_request: usize, _id: usize, _data: usize) -> isize {
+pub fn sys_trace(trace_request: usize, id: usize, data: usize) -> isize {
     trace!("kernel: sys_trace");
-    -1
+    let token = current_user_token();
+    match trace_request  {
+        0 => {
+            return -1
+            // let rs: Option<u8> = translate_data(token, id as *const u8);
+            // if let Some(data) = rs {
+            //     return data as isize;
+            // }
+            // else {
+            //     return -1;
+            // }
+        },
+        1 => {
+            let data = data as *const u8;
+            let rs = write_data(token, id as *mut u8, data);
+            if rs == -1 {
+                return -1;
+            }
+            return 0;
+            
+        },
+        2 => {
+            get_syscall_times(id).try_into().unwrap()
+        },
+        _ => return -1,
+    }
 }
 
 // YOUR JOB: Implement mmap.
