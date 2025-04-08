@@ -45,7 +45,10 @@ pub fn sys_trace(trace_request: usize, id: usize, data: usize) -> isize {
     let token = current_user_token();
     match trace_request  {
         0 => {
-            let rs: Option<u8> = translate_data(token, id as *const u8);
+            if id >= 0x80200000 {
+                return -1;
+            }
+            let rs: Option<u8> = translate_data(token, id);
             if let Some(data) = rs {
                 return data as isize;
             }
@@ -54,8 +57,10 @@ pub fn sys_trace(trace_request: usize, id: usize, data: usize) -> isize {
             }
         },
         1 => {
-            let data = data as *const u8;
-            let rs = write_data(token, id as *mut u8, data);
+            if id >= 0x80200000 {
+                return -1;
+            }
+            let rs = write_data(token, id as *mut u8, &data);
             if rs == -1 {
                 return -1;
             }
