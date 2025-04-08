@@ -16,6 +16,7 @@ mod task;
 
 use crate::config::MAX_SYSCALL_NUM;
 use crate::loader::{get_app_data, get_num_app};
+use crate::mm::MapPermission;
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
@@ -147,6 +148,18 @@ impl TaskManager {
         inner.syscall_times[idx]
     }
 
+    fn mmap_for_current(&self, start: usize, len: usize, prot: MapPermission) -> isize {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].memory_set.mmap(start, len, prot)
+    }
+
+    fn munmap_for_current(&self, start: usize, len: usize) -> isize {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].memory_set.munmap(start, len)
+    }
+
     /// Change the current 'Running' task's program break
     pub fn change_current_program_brk(&self, size: i32) -> Option<usize> {
         let mut inner = self.inner.exclusive_access();
@@ -231,4 +244,13 @@ pub fn get_syscall_times(syscall_id: usize) -> usize {
 /// Increase the syscall times of current `Running` task.
 pub fn inc_syscall_times(syscall_id: usize) {
     TASK_MANAGER.inc_syscall_times(syscall_id);
+}
+/// mmap for current task
+pub fn mmap_for_current(start: usize, len: usize, prot: MapPermission) -> isize {
+    TASK_MANAGER.mmap_for_current(start, len, prot)
+}
+
+/// munmap for current task
+pub fn munmap_for_current(start: usize, len: usize) -> isize {
+    TASK_MANAGER.munmap_for_current(start, len)
 }

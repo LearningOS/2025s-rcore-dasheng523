@@ -296,28 +296,54 @@ impl MemorySet {
         let end_va = VirtAddr::from(start + len);
 
         if !start_va.aligned() {
+            println!("not aligned.....");
             return -1;
         }
 
         if start + len > MEMORY_END {
+            println!("MEMORY_END.....");
             return -1;
         }
 
         let area_start = start_va.floor();
         let area_end = end_va.ceil();
-        for item in self.areas.iter() {
+        let mut target_idx = None;
+        for (idx, item) in self.areas.iter().enumerate() {
             let item_start = item.vpn_range.get_start();
             let item_end = item.vpn_range.get_end();
-            if (area_start >= item_start) && (area_end < item_end) {
-                // 后面那段做新增
-                let right_area = MapArea::new(area_end.into(), item_end.into(), item.map_type, item.map_perm);
-                self.push(right_area, None);
-                // 前面那段做裁剪
-                self.shrink_to(item_start.into(), area_start.into());
+            if (area_start >= item_start) && (area_end <= item_end) {
+                target_idx = Some(idx);
                 break;
             }
         }
 
+        if let Some(idx) = target_idx {
+            let item = &self.areas[idx];
+            let item_start = item.vpn_range.get_start();
+            let item_end = item.vpn_range.get_end();
+            
+            // 后面那段做新增
+            if area_end != item_end {
+                let right_area = MapArea::new(area_end.into(), item_end.into(), item.map_type, item.map_perm);
+                self.push(right_area, None);
+            }
+            
+            // 前面那段做裁剪
+            if area_start != item_start {
+                self.shrink_to(item_start.into(), area_start.into());
+            } else {
+                // 如果起始地址相同，需要删除当前区域
+                // 先解除映射
+                for vpn in VPNRange::new(area_start, area_end) {
+                    self.areas[idx].unmap_one(&mut self.page_table, vpn);
+                }
+                // 然后从areas列表中移除
+                self.areas.remove(idx);
+            }
+            return 0;
+        }
+
+        println!("Inveldd.....");
         return -1;
     }
 }

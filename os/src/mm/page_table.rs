@@ -198,7 +198,7 @@ pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize) -> Vec<&
 /// # 泛型参数
 /// 
 /// * `T` - 要转换成的目标类型
-pub fn translate_data<T>(token: usize, ptr: *const u8) -> Option<T> {
+pub fn translate_data<T: core::fmt::Debug>(token: usize, ptr: *const u8) -> Option<T> {
     let page_table = PageTable::from_token(token);
     let start = ptr as usize;
     let start_va = VirtAddr::from(start);
@@ -210,6 +210,7 @@ pub fn translate_data<T>(token: usize, ptr: *const u8) -> Option<T> {
 
     let data_len = core::mem::size_of::<T>();
     let buffer = translated_byte_buffer(token, ptr, data_len);
+    println!("my buffer: {:?}", buffer);
 
     // 创建一个未初始化的T实例
     let mut data: T = unsafe { core::mem::MaybeUninit::uninit().assume_init() };
@@ -227,7 +228,9 @@ pub fn translate_data<T>(token: usize, ptr: *const u8) -> Option<T> {
             offset += slice.len();
         }
     }
-    return Some(data);
+    //println!("my data: {:?}", data);
+    // return Some(data);
+    return None
 } 
 
 

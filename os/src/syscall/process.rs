@@ -1,5 +1,5 @@
 //! Process management syscalls
-use crate::{mm::write_data, task::{change_program_brk, current_user_token, exit_current_and_run_next, get_syscall_times, suspend_current_and_run_next}, timer::get_time_us};
+use crate::{mm::{translate_data, write_data, MapPermission}, task::{change_program_brk, current_user_token, exit_current_and_run_next, get_syscall_times, mmap_for_current, munmap_for_current, suspend_current_and_run_next}, timer::get_time_us};
 
 
 #[repr(C)]
@@ -45,14 +45,13 @@ pub fn sys_trace(trace_request: usize, id: usize, data: usize) -> isize {
     let token = current_user_token();
     match trace_request  {
         0 => {
-            return -1
-            // let rs: Option<u8> = translate_data(token, id as *const u8);
-            // if let Some(data) = rs {
-            //     return data as isize;
-            // }
-            // else {
-            //     return -1;
-            // }
+            let rs: Option<u8> = translate_data(token, id as *const u8);
+            if let Some(data) = rs {
+                return data as isize;
+            }
+            else {
+                return -1;
+            }
         },
         1 => {
             let data = data as *const u8;
@@ -71,15 +70,33 @@ pub fn sys_trace(trace_request: usize, id: usize, data: usize) -> isize {
 }
 
 // YOUR JOB: Implement mmap.
-pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
+pub fn sys_mmap(start: usize, len: usize, prot: usize) -> isize {
     trace!("kernel: sys_mmap NOT IMPLEMENTED YET!");
-    -1
+    if prot & !0x7 != 0 {
+        return -1;
+    }
+    if prot & 0x7 == 0 {
+        return -1;
+    }
+
+    let mut map_perm = MapPermission::empty();
+    if prot & 0x1 != 0 {
+        map_perm |= MapPermission::R;
+    }
+    if prot & 0x2 != 0 {
+        map_perm |= MapPermission::W;
+    }
+    if prot & 0x4 != 0 {
+        map_perm |= MapPermission::X;
+    }
+
+    mmap_for_current(start, len, map_perm)
 }
 
 // YOUR JOB: Implement munmap.
-pub fn sys_munmap(_start: usize, _len: usize) -> isize {
+pub fn sys_munmap(start: usize, len: usize) -> isize {
     trace!("kernel: sys_munmap NOT IMPLEMENTED YET!");
-    -1
+    munmap_for_current(start, len)
 }
 /// change data segment size
 pub fn sys_sbrk(size: i32) -> isize {
