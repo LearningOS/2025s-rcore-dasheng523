@@ -4,7 +4,7 @@
 //! the current running state of CPU is recorded,
 //! and the replacement and transfer of control flow of different applications are executed.
 
-use super::__switch;
+use super::{__switch, fetch_task};
 use super::manager::fetch_task_by_stride;
 use super::TaskStatus;
 use super::{TaskContext, TaskControlBlock};
@@ -55,6 +55,8 @@ lazy_static! {
 ///The main part of process execution and scheduling
 ///Loop `fetch_task` to get the process that needs to run, and switch the process through `__switch`
 pub fn run_tasks() {
+    //fetch_task();
+    println!("fetch_task: {:?}", fetch_task as usize);
     loop {
         let mut processor = PROCESSOR.exclusive_access();
         if let Some(task) = fetch_task_by_stride() {
