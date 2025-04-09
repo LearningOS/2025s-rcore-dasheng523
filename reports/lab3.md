@@ -47,3 +47,40 @@ STRIDE_MAX < new_stride(P2) = STRIDE_MIN + pass(P2) ≤ STRIDE_MIN + BigStride/2
 STRIDE_MAX - STRIDE_MIN ≤ BigStride/2
 ```
 
+##### 已知以上结论，考虑溢出的情况下，可以为 Stride 设计特别的比较器，让 BinaryHeap<Stride> 的 pop 方法能返回真正最小的 Stride。补全下列代码中的 partial_cmp 函数，假设两个 Stride 永远不会相等。
+
+(咨询了AI关于wrapping_sub的用法以及思路)
+
+
+```rust
+use core::cmp::Ordering;
+
+struct Stride(u64);
+
+impl PartialOrd for Stride {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        const BIG_STRIDE: u8 = 255;
+        const HALF_STRIDE: u8 = BIG_STRIDE / 2; // 127
+
+        // 将 u64 值视为 8 位无符号整数（隐式截断高位）
+        let a = self.0 as u8;
+        let b = other.0 as u8;
+
+        // 计算从 a 到 b 的顺时针距离
+        let distance = b.wrapping_sub(a);
+
+        // 判断是否跨越环形中点
+        if distance <= HALF_STRIDE {
+            Some(Ordering::Less) // a 在 b 的顺时针半环内，a < b
+        } else {
+            Some(Ordering::Greater) // a 在 b 的逆时针半环内，a > b
+        }
+    }
+}
+
+impl PartialEq for Stride {
+    fn eq(&self, _other: &Self) -> bool {
+        false
+    }
+}
+```
