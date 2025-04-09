@@ -83,7 +83,7 @@ impl MemorySet {
         self.areas.push(map_area);
     }
     /// Mention that trampoline is not collected by areas.
-    fn map_trampoline(&mut self) {
+    pub fn map_trampoline(&mut self) {
         self.page_table.map(
             VirtAddr::from(TRAMPOLINE).into(),
             PhysAddr::from(strampoline as usize).into(),
@@ -253,6 +253,7 @@ impl MemorySet {
         }
         memory_set
     }
+
     /// Change page table by writing satp CSR Register.
     pub fn activate(&self) {
         let satp = self.page_table.token();
@@ -299,6 +300,89 @@ impl MemorySet {
         } else {
             false
         }
+    }
+
+    /// 申请长度为 len 字节的物理内存
+    pub fn mmap(&mut self, start: usize, len: usize, prot: MapPermission) -> isize {
+        let start_va = VirtAddr::from(start);
+        let end_va = VirtAddr::from(start + len);
+
+        if !start_va.aligned() {
+            return -1;
+        }
+
+        if start + len > MEMORY_END {
+            return -1;
+        }
+
+        let area = MapArea::new(start_va, end_va, MapType::Framed, prot | MapPermission::U);
+        for item in self.areas.iter() {
+            let area_start = area.vpn_range.get_start();
+            let area_end = area.vpn_range.get_end();
+            let item_start = item.vpn_range.get_start();
+            let item_end = item.vpn_range.get_end();
+            if !(area_end <= item_start || area_start >= item_end) {
+                return -1; // 重叠了
+            }
+        }
+        self.push(area, None);
+        return 0;
+    }
+
+    /// 取消映射指定的虚拟内存区域
+    pub fn munmap(&mut self, start: usize, len: usize) -> isize {
+        let start_va = VirtAddr::from(start);
+        let end_va = VirtAddr::from(start + len);
+
+        if !start_va.aligned() {
+            println!("not aligned.....");
+            return -1;
+        }
+
+        if start + len > MEMORY_END {
+            println!("MEMORY_END.....");
+            return -1;
+        }
+
+        let area_start = start_va.floor();
+        let area_end = end_va.ceil();
+        let mut target_idx = None;
+        for (idx, item) in self.areas.iter().enumerate() {
+            let item_start = item.vpn_range.get_start();
+            let item_end = item.vpn_range.get_end();
+            if (area_start >= item_start) && (area_end <= item_end) {
+                target_idx = Some(idx);
+                break;
+            }
+        }
+
+        if let Some(idx) = target_idx {
+            let item = &self.areas[idx];
+            let item_start = item.vpn_range.get_start();
+            let item_end = item.vpn_range.get_end();
+            
+            // 后面那段做新增
+            if area_end != item_end {
+                let right_area = MapArea::new(area_end.into(), item_end.into(), item.map_type, item.map_perm);
+                self.push(right_area, None);
+            }
+            
+            // 前面那段做裁剪
+            if area_start != item_start {
+                self.shrink_to(item_start.into(), area_start.into());
+            } else {
+                // 如果起始地址相同，需要删除当前区域
+                // 先解除映射
+                for vpn in VPNRange::new(area_start, area_end) {
+                    self.areas[idx].unmap_one(&mut self.page_table, vpn);
+                }
+                // 然后从areas列表中移除
+                self.areas.remove(idx);
+            }
+            return 0;
+        }
+
+        return -1;
     }
 }
 /// map area structure, controls a contiguous piece of virtual memory
